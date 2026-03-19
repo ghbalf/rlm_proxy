@@ -1,7 +1,6 @@
-#!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────
-# RLM Proxy Uninstaller (Linux + macOS)
-# Delegates to install.sh --uninstall
+# RLM Proxy Uninstaller (Windows)
+# Delegates to install.ps1 -Uninstall
 # ──────────────────────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$SCRIPT_DIR/install.sh" --uninstall "$@"
+param([string]$Dir = "$env:LOCALAPPDATA\rlm-proxy")
+& "$PSScriptRoot\install.ps1" -Uninstall -Dir $Dir

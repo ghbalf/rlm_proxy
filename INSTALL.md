@@ -1,8 +1,41 @@
 # Installation Guide
 
+## Quick Install
+
+### Linux / macOS
+```bash
+curl -fsSL https://raw.githubusercontent.com/ghbalf/rlm_proxy/main/install.sh | bash
+
+# As a service (systemd on Linux, launchd on macOS):
+./install.sh --service
+
+# With Docker:
+./install.sh --docker
+
+# Uninstall:
+./uninstall.sh
+```
+
+### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/ghbalf/rlm_proxy/main/install.ps1 | iex
+
+# As a Windows Service (requires Administrator):
+.\install.ps1 -Service
+
+# With Docker:
+.\install.ps1 -Docker
+
+# Uninstall:
+.\uninstall.ps1
+```
+
 ## Prerequisites
 
-- **Python 3.11+** — check with `python3 --version`
+- **Python 3.11+**
+  - Linux: `sudo apt install python3 python3-venv` or equivalent
+  - macOS: `brew install python@3.12`
+  - Windows: [python.org/downloads](https://www.python.org/downloads/) — check "Add Python to PATH"
 - **At least one LLM provider:**
   - [Ollama](https://ollama.com) running locally or on another machine, and/or
   - An OpenAI-compatible API key (OpenAI, Groq, OpenRouter, Together, etc.)
@@ -13,10 +46,13 @@
 # Linux
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Start Ollama
-ollama serve
+# macOS
+brew install ollama
 
-# Pull a model with strong coding ability (needed for RLM root model)
+# Windows — download from https://ollama.com/download
+
+# Start Ollama and pull a root model
+ollama serve
 ollama pull qwen3-coder-next
 ```
 
@@ -25,19 +61,25 @@ Verify Ollama is running:
 curl http://localhost:11434/api/tags
 ```
 
-## Installation
+## Manual Installation
 
-### 1. Clone and set up
+### Linux / macOS
 
 ```bash
-git clone <your-repo-url> rlm_proxy
+git clone https://github.com/ghbalf/rlm_proxy.git
 cd rlm_proxy
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -e ".[test]"
+```
 
-# Install with test dependencies
+### Windows
+
+```powershell
+git clone https://github.com/ghbalf/rlm_proxy.git
+cd rlm_proxy
+python -m venv .venv
+.\.venv\Scripts\activate
 pip install -e ".[test]"
 ```
 
@@ -157,11 +199,23 @@ Clients must include `Authorization: Bearer my-secret-key` in their requests. Th
 
 ## Running as a Service
 
-### systemd (Linux)
+The easiest way is the install script:
 
-Create `/etc/systemd/system/rlm-proxy.service`:
+```bash
+# Linux (systemd)
+./install.sh --service
+
+# macOS (launchd)
+./install.sh --service
+
+# Windows (NSSM, requires Administrator PowerShell)
+.\install.ps1 -Service
+```
+
+### Manual setup: systemd (Linux)
 
 ```ini
+# /etc/systemd/system/rlm-proxy.service
 [Unit]
 Description=RLM Proxy
 After=network.target ollama.service
@@ -183,10 +237,36 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable rlm-proxy
 sudo systemctl start rlm-proxy
-
-# Check status
-sudo systemctl status rlm-proxy
 journalctl -u rlm-proxy -f
+```
+
+### Manual setup: launchd (macOS)
+
+The install script creates `~/Library/LaunchAgents/com.rlm-proxy.plist`. To manage manually:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.rlm-proxy.plist    # start
+launchctl unload ~/Library/LaunchAgents/com.rlm-proxy.plist  # stop
+tail -f ~/Library/Logs/rlm-proxy/stderr.log                  # logs
+```
+
+### Manual setup: Windows Service
+
+Requires [NSSM](https://nssm.cc) (the Non-Sucking Service Manager):
+
+```powershell
+# Install NSSM
+winget install nssm
+
+# Create service
+nssm install rlm-proxy C:\rlm-proxy\.venv\Scripts\python.exe C:\rlm-proxy\main.py
+nssm set rlm-proxy AppDirectory C:\rlm-proxy
+nssm start rlm-proxy
+
+# Manage
+Get-Service rlm-proxy
+Restart-Service rlm-proxy
+nssm edit rlm-proxy
 ```
 
 ## Docker

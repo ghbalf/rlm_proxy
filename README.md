@@ -96,7 +96,16 @@ pip install -e ".[test]"
 cp .env.example .env
 ```
 
-See **[INSTALL.md](INSTALL.md)** for the full installation guide including multi-provider setup, Docker, systemd service, connecting apps, and troubleshooting.
+**One-line install:**
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/ghbalf/rlm_proxy/main/install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/ghbalf/rlm_proxy/main/install.ps1 | iex
+```
+
+See **[INSTALL.md](INSTALL.md)** for the full installation guide including multi-provider setup, Docker, systemd/launchd/Windows service, connecting apps, and troubleshooting.
 
 ## Usage
 
