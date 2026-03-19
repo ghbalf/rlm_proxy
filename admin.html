@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RLM Proxy — Admin</title>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --sidebar-bg: #16213e;
+    --card-bg: #1a1a2e;
+    --border: #2a2a4a;
+    --text: #e0e0e0;
+    --text-muted: #888;
+    --accent: #e94560;
+    --accent-hover: #ff6b81;
+    --green: #4ade80;
+    --red: #f87171;
+    --yellow: #facc15;
+    --blue: #60a5fa;
+    --input-bg: #0f0f1a;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; overflow:hidden; }
+
+  /* Sidebar */
+  .sidebar { width:220px; background:var(--sidebar-bg); padding:20px 0; display:flex; flex-direction:column; border-right:1px solid var(--border); flex-shrink:0; }
+  .sidebar-logo { padding:0 20px 24px; font-size:18px; font-weight:700; color:var(--accent); }
+  .sidebar-logo span { color:var(--text-muted); font-size:12px; font-weight:400; display:block; margin-top:2px; }
+  .nav-item { padding:10px 20px; cursor:pointer; color:var(--text-muted); transition: all .15s; font-size:14px; border-left:3px solid transparent; }
+  .nav-item:hover { color:var(--text); background:rgba(233,69,96,.05); }
+  .nav-item.active { color:white; background:rgba(233,69,96,.1); border-left-color:var(--accent); }
+  .nav-item .badge { float:right; background:var(--accent); color:white; font-size:10px; padding:2px 6px; border-radius:8px; }
+  .sidebar-footer { margin-top:auto; padding:16px 20px; border-top:1px solid var(--border); }
+
+  /* Main */
+  .main { flex:1; overflow-y:auto; padding:32px 40px; }
+  .main h1 { font-size:22px; margin-bottom:4px; }
+  .main .subtitle { color:var(--text-muted); font-size:13px; margin-bottom:24px; }
+
+  /* Cards */
+  .card { background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:12px; }
+  .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .card-header h3 { font-size:14px; }
+
+  /* Host card */
+  .host-card { display:flex; align-items:center; gap:12px; }
+  .host-url { flex:1; font-family:monospace; font-size:13px; }
+  .health-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .health-dot.healthy { background:var(--green); }
+  .health-dot.unhealthy { background:var(--red); }
+  .host-stats { color:var(--text-muted); font-size:12px; display:flex; gap:16px; margin-top:8px; }
+
+  /* Form */
+  .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .form-group { margin-bottom:16px; }
+  .form-group label { display:block; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
+  .form-group input, .form-group select { width:100%; padding:8px 12px; background:var(--input-bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; font-family:inherit; }
+  .form-group input:focus, .form-group select:focus { outline:none; border-color:var(--accent); }
+  .form-group .help { font-size:11px; color:var(--text-muted); margin-top:4px; }
+
+  /* Buttons */
+  button, .btn { padding:7px 14px; border:1px solid var(--border); border-radius:6px; background:var(--card-bg); color:var(--text); cursor:pointer; font-size:13px; font-family:inherit; transition: all .15s; }
+  button:hover, .btn:hover { border-color:var(--accent); color:white; }
+  .btn-primary { background:var(--accent); border-color:var(--accent); color:white; }
+  .btn-primary:hover { background:var(--accent-hover); }
+  .btn-danger { color:var(--red); }
+  .btn-danger:hover { background:rgba(248,113,113,.1); border-color:var(--red); }
+  .btn-sm { padding:4px 10px; font-size:12px; }
+
+  /* Metrics */
+  .metric-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; margin-bottom:20px; }
+  .metric { background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .metric .label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; }
+  .metric .value { font-size:24px; font-weight:600; margin-top:4px; }
+  .metric .value.green { color:var(--green); }
+  .metric .value.red { color:var(--red); }
+  .metric .value.blue { color:var(--blue); }
+  .metric .value.yellow { color:var(--yellow); }
+
+  /* Model table */
+  .model-table { width:100%; border-collapse:collapse; }
+  .model-table th { text-align:left; font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; padding:8px 12px; border-bottom:1px solid var(--border); }
+  .model-table td { padding:10px 12px; border-bottom:1px solid var(--border); font-size:13px; }
+  .model-table tr:hover td { background:rgba(233,69,96,.03); }
+  .host-tag { display:inline-block; background:var(--sidebar-bg); padding:2px 8px; border-radius:4px; font-size:11px; margin:2px; font-family:monospace; }
+
+  /* Unsaved indicator */
+  .unsaved-banner { display:none; background:rgba(250,204,21,.1); border:1px solid var(--yellow); border-radius:6px; padding:10px 16px; margin-bottom:20px; font-size:13px; color:var(--yellow); }
+  .unsaved-banner.show { display:flex; align-items:center; justify-content:space-between; }
+
+  /* Section */
+  .section { display:none; }
+  .section.active { display:block; }
+
+  /* Add host inline */
+  .add-host-form { display:flex; gap:8px; margin-top:12px; }
+  .add-host-form input { flex:1; padding:8px 12px; background:var(--input-bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; font-family:monospace; }
+
+  /* Toast */
+  .toast { position:fixed; bottom:20px; right:20px; background:var(--card-bg); border:1px solid var(--green); color:var(--green); padding:12px 20px; border-radius:8px; font-size:13px; z-index:999; opacity:0; transition:opacity .3s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .toast.error { border-color:var(--red); color:var(--red); }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-logo">RLM Proxy<span>Admin Dashboard</span></div>
+  <div class="nav-item active" onclick="showSection('hosts')">Providers</div>
+  <div class="nav-item" onclick="showSection('models')">Models</div>
+  <div class="nav-item" onclick="showSection('rlm')">RLM Settings</div>
+  <div class="nav-item" onclick="showSection('performance')">Performance</div>
+  <div class="nav-item" onclick="showSection('auth')">Auth</div>
+  <div class="nav-item" onclick="showSection('metrics')">Metrics</div>
+  <div class="sidebar-footer">
+    <button class="btn-primary" onclick="saveConfig()" style="width:100%;margin-bottom:8px">Save to Disk</button>
+    <button onclick="resetConfig()" style="width:100%">Reset to Saved</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="unsaved-banner" id="unsaved">
+    <span>You have unsaved changes</span>
+    <button class="btn-sm btn-primary" onclick="saveConfig()">Save Now</button>
+  </div>
+
+  <!-- HOSTS -->
+  <div class="section active" id="sec-hosts">
+    <h1>Providers</h1>
+    <p class="subtitle">Manage LLM providers (Ollama, OpenAI-compatible). Requests are dispatched to the least-loaded healthy provider.</p>
+    <div style="margin-bottom:16px">
+      <button onclick="refreshHosts()" class="btn-sm">Refresh All</button>
+    </div>
+    <div id="hosts-list"></div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h3>Add Provider</h3></div>
+      <div style="display:grid; grid-template-columns:1fr auto 2fr 1fr auto; gap:8px; align-items:end;">
+        <div class="form-group" style="margin:0">
+          <label>Name</label>
+          <input type="text" id="new-provider-name" placeholder="e.g. local, groq, openai" style="font-family:monospace">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>API Type</label>
+          <select id="new-provider-type" style="width:100px">
+            <option value="ollama">ollama</option>
+            <option value="openai">openai</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>URL</label>
+          <input type="text" id="new-provider-url" placeholder="http://hostname:11434" style="font-family:monospace">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>API Key</label>
+          <input type="password" id="new-provider-key" placeholder="(optional)">
+        </div>
+        <button class="btn-primary btn-sm" onclick="addProvider()" style="height:35px">Add</button>
+      </div>
+      <div class="help" style="margin-top:8px">Use the name as prefix in model requests: <code style="color:var(--accent)">name/model</code> (e.g. <code>groq/llama-3.3-70b</code>)</div>
+    </div>
+  </div>
+
+  <!-- MODELS -->
+  <div class="section" id="sec-models">
+    <h1>Models</h1>
+    <p class="subtitle">Models discovered across all hosts. Routing is automatic based on availability.</p>
+    <div id="models-table"></div>
+  </div>
+
+  <!-- RLM SETTINGS -->
+  <div class="section" id="sec-rlm">
+    <h1>RLM Settings</h1>
+    <p class="subtitle">Configure the Recursive Language Model scaffold behavior.</p>
+    <div class="form-grid">
+      <div class="form-group"><label>Root Model</label><input type="text" data-key="root_model" placeholder="local/qwen3-coder-next" list="root-model-options"><datalist id="root-model-options"></datalist><div class="help">Model for RLM code generation. Use "provider/model" to pin to a provider. Sub model = user's requested model.</div></div>
+      <div class="form-group"><label>Threshold (chars)</label><input type="number" data-key="rlm_threshold_chars"><div class="help">Activate RLM above this character count</div></div>
+      <div class="form-group"><label>Max Iterations</label><input type="number" data-key="max_iterations"><div class="help">Maximum root LLM turns per request</div></div>
+      <div class="form-group"><label>Max Sub-calls</label><input type="number" data-key="max_sub_calls"><div class="help">Maximum llm_query() calls per request</div></div>
+      <div class="form-group"><label>Sub-call Max Chars</label><input type="number" data-key="sub_call_max_chars"><div class="help">Max characters sent per sub-call</div></div>
+      <div class="form-group"><label>REPL Exec Timeout (s)</label><input type="number" data-key="repl_exec_timeout"><div class="help">Seconds before code execution times out</div></div>
+      <div class="form-group"><label>History Compact Threshold</label><input type="number" data-key="history_compact_threshold"><div class="help">Turns before LLM-summarized compaction</div></div>
+      <div class="form-group"><label>Max Sub-call Depth</label><input type="number" data-key="max_sub_call_depth"><div class="help">Max nesting depth for recursive sub-calls</div></div>
+      <div class="form-group"><label>Token Budget</label><input type="number" data-key="token_budget"><div class="help">Max estimated tokens per session (0 = unlimited)</div></div>
+      <div class="form-group"><label>Token Estimate Ratio</label><input type="number" step="0.1" data-key="token_estimate_ratio"><div class="help">Characters per token for estimation</div></div>
+      <div class="form-group"><label>Passthrough Short</label><select data-key="passthrough_short"><option value="true">Yes</option><option value="false">No</option></select><div class="help">Skip RLM for short prompts</div></div>
+    </div>
+  </div>
+
+  <!-- PERFORMANCE -->
+  <div class="section" id="sec-performance">
+    <h1>Performance</h1>
+    <p class="subtitle">Concurrency, caching, retry, and circuit breaker settings.</p>
+    <div class="form-grid">
+      <div class="form-group"><label>Max Concurrent Sessions</label><input type="number" data-key="max_concurrent_sessions"><div class="help">Max simultaneous RLM sessions</div></div>
+      <div class="form-group"><label>Max Queue Size</label><input type="number" data-key="max_queue_size"><div class="help">Max queued requests before 429</div></div>
+      <div class="form-group"><label>Sub-call Cache Size</label><input type="number" data-key="sub_call_cache_size"><div class="help">LRU cache entries for sub-call results</div></div>
+      <div class="form-group"><label>Max Concurrent Sub-calls</label><input type="number" data-key="max_concurrent_sub_calls"><div class="help">Parallel sub-calls via llm_query_batch()</div></div>
+      <div class="form-group"><label>Ollama Max Retries</label><input type="number" data-key="ollama_max_retries"><div class="help">Retry attempts on transient failures</div></div>
+      <div class="form-group"><label>Retry Base Delay (s)</label><input type="number" step="0.1" data-key="ollama_retry_base_delay"><div class="help">Base delay for exponential backoff</div></div>
+      <div class="form-group"><label>Circuit Breaker Threshold</label><input type="number" data-key="circuit_breaker_threshold"><div class="help">Consecutive failures before circuit opens</div></div>
+      <div class="form-group"><label>Circuit Breaker Timeout (s)</label><input type="number" data-key="circuit_breaker_timeout"><div class="help">Seconds before circuit half-opens for probe</div></div>
+      <div class="form-group"><label>Dispatcher Refresh (s)</label><input type="number" data-key="dispatcher_refresh_interval"><div class="help">Seconds between host model discovery refreshes</div></div>
+    </div>
+  </div>
+
+  <!-- AUTH -->
+  <div class="section" id="sec-auth">
+    <h1>Authentication</h1>
+    <p class="subtitle">API key for bearer token authentication. Leave empty to disable auth.</p>
+    <div style="max-width:500px">
+      <div class="form-group">
+        <label>API Key</label>
+        <div style="display:flex;gap:8px">
+          <input type="password" data-key="api_key" id="api-key-input">
+          <button class="btn-sm" onclick="toggleApiKey()">Show</button>
+        </div>
+        <div class="help">Bearer token required on /v1/* endpoints. Empty = auth disabled.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- METRICS -->
+  <div class="section" id="sec-metrics">
+    <h1>Metrics</h1>
+    <p class="subtitle">Live dashboard — auto-refreshes every 5 seconds.</p>
+    <div class="metric-grid" id="metrics-grid"></div>
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h3>Raw JSON</h3></div>
+      <pre id="metrics-json" style="font-size:12px;color:var(--text-muted);max-height:400px;overflow-y:auto;white-space:pre-wrap"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+let configData = {};
+let savedData = {};
+let metricsInterval = null;
+
+// Navigation
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(function(s) { s.classList.remove('active'); });
+  document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
+  document.getElementById('sec-' + name).classList.add('active');
+  var idx = ['hosts','models','rlm','performance','auth','metrics'].indexOf(name);
+  document.querySelectorAll('.nav-item')[idx].classList.add('active');
+  if (name === 'hosts') loadHosts();
+  if (name === 'models') loadModels();
+  if (name === 'rlm') populateRootModelOptions();
+  if (name === 'metrics') { loadMetrics(); startMetricsRefresh(); }
+  else { stopMetricsRefresh(); }
+}
+
+// Config
+async function loadConfig() {
+  var resp = await fetch(API + '/v1/rlm/config/all');
+  configData = await resp.json();
+  savedData = Object.assign({}, configData);
+  populateFields();
+}
+
+function populateFields() {
+  document.querySelectorAll('[data-key]').forEach(function(el) {
+    var key = el.dataset.key;
+    if (key in configData) {
+      el.value = String(configData[key]);
+    }
+  });
+}
+
+document.addEventListener('change', async function(e) {
+  var key = e.target.dataset ? e.target.dataset.key : null;
+  if (!key) return;
+  var value = e.target.value;
+  if (e.target.type === 'number') value = Number(value);
+  if (e.target.tagName === 'SELECT') value = (value === 'true');
+  var body = {}; body[key] = value;
+  var resp = await fetch(API + '/v1/rlm/config', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  var result = await resp.json();
+  if (result.errors && Object.keys(result.errors).length) {
+    toast('Error: ' + JSON.stringify(result.errors), true);
+  } else {
+    configData[key] = value;
+    checkUnsaved();
+    toast('Updated ' + key);
+  }
+});
+
+function checkUnsaved() {
+  var changed = Object.keys(configData).some(function(k) { return configData[k] !== savedData[k]; });
+  document.getElementById('unsaved').classList.toggle('show', changed);
+}
+
+async function saveConfig() {
+  var resp = await fetch(API + '/v1/rlm/config/save', {method: 'POST'});
+  var result = await resp.json();
+  savedData = Object.assign({}, configData);
+  checkUnsaved();
+  toast('Saved to ' + result.saved);
+}
+
+async function resetConfig() {
+  var resp = await fetch(API + '/v1/rlm/config/reset', {method: 'POST'});
+  var result = await resp.json();
+  configData = result.settings;
+  savedData = Object.assign({}, configData);
+  populateFields();
+  checkUnsaved();
+  toast('Settings reset');
+}
+
+// Hosts
+async function loadHosts() {
+  var resp = await fetch(API + '/v1/rlm/dispatch');
+  var data = await resp.json();
+  var list = document.getElementById('hosts-list');
+  // Clear existing children
+  while (list.firstChild) list.removeChild(list.firstChild);
+
+  var entries = Object.entries(data.providers || {});
+  for (var i = 0; i < entries.length; i++) {
+    var provName = entries[i][0];
+    var info = entries[i][1];
+    var card = document.createElement('div');
+    card.className = 'card';
+
+    var hostDiv = document.createElement('div');
+    hostDiv.className = 'host-card';
+
+    var dot = document.createElement('span');
+    dot.className = 'health-dot ' + (info.healthy ? 'healthy' : 'unhealthy');
+    hostDiv.appendChild(dot);
+
+    var nameTag = document.createElement('span');
+    nameTag.style.cssText = 'font-weight:600; font-size:14px; margin-right:8px;';
+    nameTag.textContent = provName;
+    hostDiv.appendChild(nameTag);
+
+    var typeTag = document.createElement('span');
+    typeTag.className = 'host-tag';
+    typeTag.textContent = info.api_type || 'ollama';
+    typeTag.style.marginRight = '4px';
+    hostDiv.appendChild(typeTag);
+
+    var urlSpan = document.createElement('span');
+    urlSpan.className = 'host-url';
+    urlSpan.textContent = info.url;
+    hostDiv.appendChild(urlSpan);
+
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'btn-sm btn-danger';
+    removeBtn.textContent = 'Remove';
+    removeBtn.setAttribute('data-name', provName);
+    removeBtn.onclick = function() { removeHost(this.getAttribute('data-name')); };
+    hostDiv.appendChild(removeBtn);
+
+    card.appendChild(hostDiv);
+
+    var stats = document.createElement('div');
+    stats.className = 'host-stats';
+    var labels = ['Models: ' + info.models, 'Active: ' + info.active_requests, 'Total: ' + info.total_requests, 'Errors: ' + info.total_errors];
+    for (var j = 0; j < labels.length; j++) {
+      var s = document.createElement('span');
+      s.textContent = labels[j];
+      stats.appendChild(s);
+    }
+    card.appendChild(stats);
+    list.appendChild(card);
+  }
+
+  // Update sidebar badge
+  var navItems = document.querySelectorAll('.nav-item');
+  var badge = navItems[0].querySelector('.badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'badge';
+    navItems[0].appendChild(badge);
+  }
+  badge.textContent = entries.length;
+}
+
+async function addProvider() {
+  var nameEl = document.getElementById('new-provider-name');
+  var typeEl = document.getElementById('new-provider-type');
+  var urlEl = document.getElementById('new-provider-url');
+  var keyEl = document.getElementById('new-provider-key');
+  var name = nameEl.value.trim();
+  var apiType = typeEl.value;
+  var url = urlEl.value.trim();
+  var apiKey = keyEl.value.trim();
+  if (!name || !url) { toast('Name and URL are required', true); return; }
+  try {
+    var body = {name: name, api_type: apiType, url: url};
+    if (apiKey) body.api_key = apiKey;
+    var resp = await fetch(API + '/v1/rlm/providers/add', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) { var e = await resp.json(); toast(e.detail, true); return; }
+    nameEl.value = '';
+    urlEl.value = '';
+    keyEl.value = '';
+    toast('Provider added: ' + name);
+    loadHosts();
+  } catch(ex) { toast('Failed to add provider', true); }
+}
+
+async function removeHost(name) {
+  if (!confirm('Remove provider "' + name + '"?')) return;
+  try {
+    var resp = await fetch(API + '/v1/rlm/providers/remove', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name})
+    });
+    if (!resp.ok) { var e = await resp.json(); toast(e.detail, true); return; }
+    toast('Provider removed');
+    loadHosts();
+  } catch(ex) { toast('Failed to remove provider', true); }
+}
+
+async function refreshHosts() {
+  toast('Refreshing...');
+  await fetch(API + '/v1/rlm/hosts/refresh', {method: 'POST'});
+  loadHosts();
+  toast('Hosts refreshed');
+}
+
+// Models
+async function loadModels() {
+  var resp = await fetch(API + '/v1/rlm/dispatch');
+  var data = await resp.json();
+  var container = document.getElementById('models-table');
+  while (container.firstChild) container.removeChild(container.firstChild);
+
+  var table = document.createElement('table');
+  table.className = 'model-table';
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+  var th1 = document.createElement('th'); th1.textContent = 'Model'; headRow.appendChild(th1);
+  var th2 = document.createElement('th'); th2.textContent = 'Providers'; headRow.appendChild(th2);
+  var th3 = document.createElement('th'); th3.textContent = 'Use as'; headRow.appendChild(th3);
+  var th4 = document.createElement('th'); th4.textContent = ''; headRow.appendChild(th4);
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  var routing = data.routing_table || {};
+  var models = Object.keys(routing).sort();
+
+  if (models.length === 0) {
+    var emptyRow = document.createElement('tr');
+    var emptyTd = document.createElement('td');
+    emptyTd.setAttribute('colspan', '4');
+    emptyTd.style.cssText = 'color:var(--text-muted);text-align:center;padding:20px';
+    emptyTd.textContent = 'No models discovered yet. Try refreshing hosts.';
+    emptyRow.appendChild(emptyTd);
+    tbody.appendChild(emptyRow);
+  } else {
+    for (var i = 0; i < models.length; i++) {
+      var model = models[i];
+      var providerNames = routing[model];
+      var row = document.createElement('tr');
+
+      var tdModel = document.createElement('td');
+      tdModel.style.fontFamily = 'monospace';
+      tdModel.textContent = model;
+      row.appendChild(tdModel);
+
+      var tdProviders = document.createElement('td');
+      for (var h = 0; h < providerNames.length; h++) {
+        var tag = document.createElement('span');
+        tag.className = 'host-tag';
+        tag.textContent = providerNames[h];
+        tdProviders.appendChild(tag);
+      }
+      row.appendChild(tdProviders);
+
+      var tdUse = document.createElement('td');
+      tdUse.style.fontFamily = 'monospace';
+      tdUse.style.fontSize = '12px';
+      var useStrings = [];
+      for (var h = 0; h < providerNames.length; h++) {
+        var code = document.createElement('code');
+        code.style.cssText = 'background:var(--input-bg);padding:2px 6px;border-radius:3px;margin:2px;display:inline-block;color:var(--accent);cursor:pointer';
+        code.textContent = providerNames[h] + '/' + model;
+        code.title = 'Click to copy';
+        code.onclick = (function(text) { return function() { navigator.clipboard.writeText(text); toast('Copied: ' + text); }; })(providerNames[h] + '/' + model);
+        tdUse.appendChild(code);
+      }
+      row.appendChild(tdUse);
+
+      var tdAction = document.createElement('td');
+      if (providerNames.length > 0) {
+        var setBtn = document.createElement('button');
+        setBtn.className = 'btn-sm';
+        setBtn.textContent = 'Set as root';
+        setBtn.setAttribute('data-model', providerNames[0] + '/' + model);
+        setBtn.onclick = function() { setRootModel(this.getAttribute('data-model')); };
+        tdAction.appendChild(setBtn);
+      }
+      row.appendChild(tdAction);
+
+      tbody.appendChild(row);
+    }
+  }
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+// Metrics
+async function loadMetrics() {
+  try {
+    var resp = await fetch(API + '/v1/rlm/metrics');
+    var data = await resp.json();
+    var grid = document.getElementById('metrics-grid');
+    while (grid.firstChild) grid.removeChild(grid.firstChild);
+
+    var r = data.requests || {};
+    var rlm = data.rlm || {};
+    var q = data.queue || {};
+    var cb = data.circuit_breaker || {};
+    var dp = data.duration_percentiles || {};
+
+    var items = [
+      {label: 'Total Requests', value: r.total || 0, cls: 'blue'},
+      {label: 'RLM Requests', value: r.rlm || 0, cls: ''},
+      {label: 'Passthrough', value: r.passthrough || 0, cls: ''},
+      {label: 'Errors', value: r.errors || 0, cls: (r.errors || 0) > 0 ? 'red' : 'green'},
+      {label: 'Active Sessions', value: q.active_sessions || 0, cls: 'yellow'},
+      {label: 'Queued', value: q.queued_requests || 0, cls: ''},
+      {label: 'Sub-calls', value: rlm.total_sub_calls || 0, cls: ''},
+      {label: 'Cache Hits', value: rlm.total_cache_hits || 0, cls: 'green'},
+      {label: 'Circuit Breaker', value: cb.state || 'unknown', cls: cb.state === 'closed' ? 'green' : 'red'},
+      {label: 'P50 Latency', value: (dp.p50 || 0) + 's', cls: ''},
+      {label: 'P95 Latency', value: (dp.p95 || 0) + 's', cls: ''},
+      {label: 'P99 Latency', value: (dp.p99 || 0) + 's', cls: ''}
+    ];
+
+    for (var i = 0; i < items.length; i++) {
+      var m = document.createElement('div');
+      m.className = 'metric';
+      var lbl = document.createElement('div');
+      lbl.className = 'label';
+      lbl.textContent = items[i].label;
+      m.appendChild(lbl);
+      var val = document.createElement('div');
+      val.className = 'value' + (items[i].cls ? ' ' + items[i].cls : '');
+      val.textContent = items[i].value;
+      m.appendChild(val);
+      grid.appendChild(m);
+    }
+
+    document.getElementById('metrics-json').textContent = JSON.stringify(data, null, 2);
+  } catch(ex) { /* ignore fetch errors during auto-refresh */ }
+}
+
+function startMetricsRefresh() { stopMetricsRefresh(); metricsInterval = setInterval(loadMetrics, 5000); }
+function stopMetricsRefresh() { if (metricsInterval) { clearInterval(metricsInterval); metricsInterval = null; } }
+
+// Populate root model datalist with provider/model options
+async function populateRootModelOptions() {
+  try {
+    var resp = await fetch(API + '/v1/rlm/dispatch');
+    var data = await resp.json();
+    var datalist = document.getElementById('root-model-options');
+    while (datalist.firstChild) datalist.removeChild(datalist.firstChild);
+    var routing = data.routing_table || {};
+    var models = Object.keys(routing).sort();
+    for (var i = 0; i < models.length; i++) {
+      var providers = routing[models[i]];
+      for (var j = 0; j < providers.length; j++) {
+        var opt = document.createElement('option');
+        opt.value = providers[j] + '/' + models[i];
+        datalist.appendChild(opt);
+      }
+    }
+  } catch(ex) { /* ignore */ }
+}
+
+// Set root model from models table
+async function setRootModel(modelStr) {
+  var resp = await fetch(API + '/v1/rlm/config', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({root_model: modelStr})
+  });
+  var result = await resp.json();
+  if (result.errors && Object.keys(result.errors).length) {
+    toast('Error: ' + JSON.stringify(result.errors), true);
+  } else {
+    configData.root_model = modelStr;
+    populateFields();
+    checkUnsaved();
+    toast('Root model set to: ' + modelStr);
+  }
+}
+
+// Auth
+function toggleApiKey() {
+  var input = document.getElementById('api-key-input');
+  var btn = input.parentElement.querySelector('button');
+  if (input.type === 'password') { input.type = 'text'; btn.textContent = 'Hide'; }
+  else { input.type = 'password'; btn.textContent = 'Show'; }
+}
+
+// Toast
+function toast(msg, isError) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(function() { el.className = 'toast'; }, 2500);
+}
+
+// Init
+loadConfig();
+loadHosts();
+populateRootModelOptions();
+</script>
+</body>
+</html>
