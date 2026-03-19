@@ -67,6 +67,7 @@ def test_schema_force_passthrough():
     from schemas import ChatCompletionRequest
 
     req = ChatCompletionRequest(
+        model="test-model",
         messages=[{"role": "user", "content": "hi"}],
         force_passthrough=True,
     )
@@ -78,6 +79,7 @@ def test_schema_context_field():
 
     # String context
     req = ChatCompletionRequest(
+        model="test-model",
         messages=[{"role": "user", "content": "hi"}],
         context="some docs",
     )
@@ -85,6 +87,7 @@ def test_schema_context_field():
 
     # Dict context
     req = ChatCompletionRequest(
+        model="test-model",
         messages=[{"role": "user", "content": "hi"}],
         context={"doc1": "content1"},
     )
@@ -92,6 +95,7 @@ def test_schema_context_field():
 
     # List context
     req = ChatCompletionRequest(
+        model="test-model",
         messages=[{"role": "user", "content": "hi"}],
         context=["doc1", "doc2"],
     )
@@ -118,6 +122,7 @@ def test_should_use_rlm_force_passthrough():
     from schemas import ChatCompletionRequest
 
     req = ChatCompletionRequest(
+        model="test-model",
         messages=[{"role": "user", "content": "x" * 100_000}],
         force_passthrough=True,
     )
@@ -129,6 +134,7 @@ def test_should_use_rlm_force_rlm():
     from schemas import ChatCompletionRequest
 
     req = ChatCompletionRequest(
+        model="test-model",
         messages=[{"role": "user", "content": "short"}],
         force_rlm=True,
     )
@@ -140,6 +146,7 @@ def test_should_use_rlm_context_triggers():
     from schemas import ChatCompletionRequest
 
     req = ChatCompletionRequest(
+        model="test-model",
         messages=[{"role": "user", "content": "short"}],
         context={"doc": "content"},
     )

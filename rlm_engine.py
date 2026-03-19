@@ -512,13 +512,15 @@ async def passthrough_chat(
     temperature: float = 0.7,
     top_p: float = 0.9,
     max_tokens: int | None = None,
-) -> str:
-    """Direct passthrough to Ollama for short prompts (no RLM scaffold)."""
-    resp = await ollama_client.chat(
+) -> dict:
+    """Direct passthrough to Ollama for short prompts (no RLM scaffold).
+
+    Returns the full Ollama response dict so callers can extract tokens.
+    """
+    return await ollama_client.chat(
         model=model or settings.root_model,
         messages=messages,
         temperature=temperature,
         top_p=top_p,
         max_tokens=max_tokens,
     )
-    return resp.get("message", {}).get("content", "")

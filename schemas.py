@@ -17,7 +17,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "qwen3-coder-next"
+    model: str
     messages: list[ChatMessage]
     temperature: float = 0.7
     top_p: float = 0.9

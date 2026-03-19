@@ -6,8 +6,10 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
+import re
+import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 import ollama_client
@@ -36,7 +38,6 @@ from schemas import (
     ModelDetail,
     ModelInfo,
     ModelList,
-    OllamaEmbedRequest,
     StreamChoice,
     StreamDelta,
     Usage,
@@ -48,6 +49,32 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("rlm_proxy")
+
+# URL pattern to strip from error messages (prevents leaking internal infra)
+_URL_RE = re.compile(r"https?://[^\s'\"]+")
+
+
+def _sanitize_error(exc: Exception) -> str:
+    """Return a user-facing error message with internal URLs stripped."""
+    msg = str(exc)
+    # httpx errors often contain "for url '...'" — strip the URL
+    sanitized = _URL_RE.sub("<upstream>", msg)
+    return sanitized
+
+
+async def _parse_json_body(request: Request) -> dict:
+    """Parse JSON body tolerantly — works even without Content-Type header.
+
+    Real Ollama accepts JSON without Content-Type; FastAPI's dict parsing requires it.
+    This helper reads the raw body and parses it as JSON regardless of headers.
+    """
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, detail="Request body is empty")
+    try:
+        return _json.loads(body)
+    except _json.JSONDecodeError as exc:
+        raise HTTPException(400, detail=f"Invalid JSON: {exc}") from exc
 
 
 # ── Lifespan ─────────────────────────────────────────────────────────────────
@@ -90,6 +117,12 @@ app.include_router(admin_router)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _raise_if_model_not_found(exc: Exception, model: str) -> None:
+    """If the upstream returned 404, raise a clean 'model not found' error."""
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 404:
+        raise HTTPException(404, detail=f"Model '{model}' not found") from exc
+
 
 def _total_content_length(messages: list[ChatMessage]) -> int:
     return sum(len(m.content) for m in messages)
@@ -182,7 +215,7 @@ async def list_models():
     try:
         models = await ollama_client.list_models()
     except Exception as exc:
-        raise HTTPException(502, detail=f"Could not reach Ollama: {exc}") from exc
+        raise HTTPException(502, detail=f"Could not reach Ollama: {_sanitize_error(exc)}") from exc
 
     return ModelList(
         data=[
@@ -202,7 +235,7 @@ async def openai_embeddings(req: EmbeddingRequest):
         result = await ollama_client.embed(model=req.model, input_texts=input_texts)
     except Exception as exc:
         log.error("Embeddings failed: %s", exc)
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=_sanitize_error(exc)) from exc
 
     embeddings = result.get("embeddings", [])
     return EmbeddingResponse(
@@ -219,14 +252,19 @@ async def openai_embeddings(req: EmbeddingRequest):
 
 
 @app.post("/api/embed")
-async def ollama_embed(req: OllamaEmbedRequest):
+async def ollama_embed(request: Request):
     """Ollama-native /api/embed passthrough with dispatch."""
-    input_texts = [req.input] if isinstance(req.input, str) else req.input
+    req = await _parse_json_body(request)
+    model = req.get("model", "")
+    if not model:
+        raise HTTPException(400, detail="model is required")
+    raw_input = req.get("input", "")
+    input_texts = [raw_input] if isinstance(raw_input, str) else raw_input
     try:
-        result = await ollama_client.embed(model=req.model, input_texts=input_texts)
+        result = await ollama_client.embed(model=model, input_texts=input_texts)
     except Exception as exc:
         log.error("Ollama embed failed: %s", exc)
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=_sanitize_error(exc)) from exc
     return result
 
 
@@ -239,7 +277,7 @@ async def openai_model_detail(model_id: str):
         info = await ollama_client.show_model(model_id)
     except Exception as exc:
         log.error("Model show failed: %s", exc)
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=_sanitize_error(exc)) from exc
 
     details = info.get("details", {})
     model_info = info.get("model_info", {})
@@ -263,8 +301,9 @@ async def openai_model_detail(model_id: str):
 
 
 @app.post("/api/show")
-async def ollama_show(req: dict):
+async def ollama_show(request: Request):
     """Ollama-native /api/show passthrough with dispatch."""
+    req = await _parse_json_body(request)
     model = req.get("model", "")
     if not model:
         raise HTTPException(400, detail="model is required")
@@ -272,15 +311,16 @@ async def ollama_show(req: dict):
         result = await ollama_client.show_model(model)
     except Exception as exc:
         log.error("Ollama show failed: %s", exc)
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=_sanitize_error(exc)) from exc
     return result
 
 
 # ── Ollama-native chat + generate passthroughs ─────────────────────────────
 
 @app.post("/api/chat")
-async def ollama_chat(req: dict):
+async def ollama_chat(request: Request):
     """Ollama-native /api/chat passthrough with dispatch."""
+    req = await _parse_json_body(request)
     model = req.get("model", "")
     messages = req.get("messages", [])
     if not model or not messages:
@@ -294,14 +334,16 @@ async def ollama_chat(req: dict):
             max_tokens=req.get("options", {}).get("num_predict"),
         )
     except Exception as exc:
+        _raise_if_model_not_found(exc, model)
         log.error("Ollama chat failed: %s", exc)
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=_sanitize_error(exc)) from exc
     return result
 
 
 @app.post("/api/generate")
-async def ollama_generate(req: dict):
+async def ollama_generate(request: Request):
     """Ollama-native /api/generate passthrough with dispatch."""
+    req = await _parse_json_body(request)
     model = req.get("model", "")
     prompt = req.get("prompt", "")
     if not model:
@@ -316,7 +358,7 @@ async def ollama_generate(req: dict):
         )
     except Exception as exc:
         log.error("Ollama generate failed: %s", exc)
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=_sanitize_error(exc)) from exc
     return {"model": model, "response": result}
 
 
@@ -326,7 +368,7 @@ async def ollama_tags():
     try:
         models = await ollama_client.list_models()
     except Exception as exc:
-        raise HTTPException(502, detail=str(exc)) from exc
+        raise HTTPException(502, detail=_sanitize_error(exc)) from exc
     return {"models": models}
 
 
@@ -342,6 +384,8 @@ async def dispatch_info():
 async def chat_completions(req: ChatCompletionRequest):
     if not req.messages:
         raise HTTPException(400, detail="messages cannot be empty")
+    if not req.model:
+        raise HTTPException(400, detail="model is required")
 
     use_rlm = _should_use_rlm(req)
     total_chars = _total_content_length(req.messages)
@@ -375,7 +419,7 @@ async def chat_completions(req: ChatCompletionRequest):
             wait_time = await rlm_queue.acquire()
         except RuntimeError as exc:
             metrics.record_error()
-            raise HTTPException(429, detail=str(exc), headers={"Retry-After": "30"}) from exc
+            raise HTTPException(429, detail=_sanitize_error(exc), headers={"Retry-After": "30"}) from exc
 
         async def _stream_rlm():
             try:
@@ -401,7 +445,7 @@ async def chat_completions(req: ChatCompletionRequest):
         ollama_msgs = [{"role": m.role, "content": m.content} for m in req.messages]
         t_pass = time.perf_counter()
         try:
-            answer = await passthrough_chat(
+            resp = await passthrough_chat(
                 ollama_msgs,
                 model=req.model,
                 temperature=req.temperature,
@@ -412,18 +456,28 @@ async def chat_completions(req: ChatCompletionRequest):
             metrics.record_error()
             raise HTTPException(
                 status_code=503,
-                detail=str(exc),
+                detail=_sanitize_error(exc),
                 headers={"Retry-After": str(int(exc.retry_after))},
             ) from exc
         except Exception as exc:
+            _raise_if_model_not_found(exc, req.model)
             metrics.record_error()
             log.error("Ollama passthrough failed: %s", exc)
-            raise HTTPException(502, detail=str(exc)) from exc
+            raise HTTPException(502, detail=_sanitize_error(exc)) from exc
         metrics.record_passthrough_duration(time.perf_counter() - t_pass)
+
+        answer = resp.get("message", {}).get("content", "")
+        prompt_tokens = resp.get("prompt_eval_count", 0) or 0
+        completion_tokens = resp.get("eval_count", 0) or 0
 
         return ChatCompletionResponse(
             model=req.model,
             choices=[Choice(message=ChatMessage(role="assistant", content=answer))],
+            usage=Usage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+            ),
         )
 
     # ── RLM mode ──
@@ -450,7 +504,7 @@ async def chat_completions(req: ChatCompletionRequest):
         metrics.record_error()
         raise HTTPException(
             status_code=429,
-            detail=str(exc),
+            detail=_sanitize_error(exc),
             headers={"Retry-After": "30"},
         ) from exc
 
@@ -467,14 +521,14 @@ async def chat_completions(req: ChatCompletionRequest):
         metrics.session_end()
         raise HTTPException(
             status_code=503,
-            detail=str(exc),
+            detail=_sanitize_error(exc),
             headers={"Retry-After": str(int(exc.retry_after))},
         ) from exc
     except Exception as exc:
         metrics.record_error()
         metrics.session_end()
         log.error("RLM engine failed: %s", exc, exc_info=True)
-        raise HTTPException(500, detail=f"RLM engine error: {exc}") from exc
+        raise HTTPException(500, detail=f"RLM engine error: {_sanitize_error(exc)}") from exc
     finally:
         rlm_queue.release()
 
@@ -517,7 +571,6 @@ async def rlm_metrics():
 async def rlm_config():
     return {
         "root_model": settings.root_model,
-        "root_provider_url": settings.root_provider_url,
         "rlm_threshold_chars": settings.rlm_threshold_chars,
         "max_iterations": settings.max_iterations,
         "max_sub_calls": settings.max_sub_calls,
