@@ -358,5 +358,5 @@ if ! $SETUP_SERVICE && ! $SETUP_DOCKER; then
   echo "  python main.py"
   echo ""
   info "To install as a service:"
-  echo "  $0 --service"
+  echo "  ${INSTALL_DIR}/install.sh --dir ${INSTALL_DIR} --service"
 fi
