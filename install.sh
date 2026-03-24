@@ -170,6 +170,16 @@ fi
 
 if [[ -d "$INSTALL_DIR" ]]; then
   info "Updating existing installation..."
+
+  # Stop service if running, so files aren't in use during update
+  if [[ "$PLATFORM" == "linux" ]] && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    info "Stopping $SERVICE_NAME service..."
+    sudo systemctl stop "$SERVICE_NAME"
+  elif [[ "$PLATFORM" == "macos" ]] && launchctl list 2>/dev/null | grep -q "$SERVICE_NAME"; then
+    info "Stopping $SERVICE_NAME service..."
+    launchctl unload "$HOME/Library/LaunchAgents/com.rlm-proxy.plist" 2>/dev/null || true
+  fi
+
   cd "$INSTALL_DIR"
   git fetch --all --tags
   git checkout "$BRANCH" 2>/dev/null || git checkout "origin/$BRANCH" 2>/dev/null || true
@@ -235,7 +245,7 @@ EOF
 
   sudo systemctl daemon-reload
   sudo systemctl enable "$SERVICE_NAME"
-  sudo systemctl start "$SERVICE_NAME"
+  sudo systemctl restart "$SERVICE_NAME"
   ok "Systemd service installed and started"
   echo ""
   info "Manage with:"
