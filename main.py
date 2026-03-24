@@ -48,6 +48,11 @@ logging.basicConfig(
     format="%(asctime)s  %(name)-28s  %(levelname)-7s  %(message)s",
     datefmt="%H:%M:%S",
 )
+
+from log_buffer import buffer_handler
+buffer_handler.setFormatter(logging.Formatter("%(asctime)s  %(name)-28s  %(levelname)-7s  %(message)s", datefmt="%H:%M:%S"))
+logging.getLogger().addHandler(buffer_handler)
+
 log = logging.getLogger("rlm_proxy")
 
 # URL pattern to strip from error messages (prevents leaking internal infra)

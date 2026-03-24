@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from config import get_all_settings, load_settings, save_settings, update_settings
 from dispatcher import dispatcher
+from log_buffer import buffer_handler
 from providers import ProviderConfig
 
 log = logging.getLogger("rlm_proxy.admin")
@@ -135,3 +136,14 @@ async def host_refresh():
     """Re-probe all providers for available models."""
     await dispatcher.refresh()
     return dispatcher.snapshot()
+
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/v1/rlm/logs")
+async def get_logs(q: str = "", level: str = "", limit: int = 200):
+    """Return recent log entries, optionally filtered by query and level."""
+    if limit > 2000:
+        limit = 2000
+    return {"entries": buffer_handler.get_entries(query=q, level=level, limit=limit)}
