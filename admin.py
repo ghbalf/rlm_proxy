@@ -78,7 +78,8 @@ async def provider_add(body: dict):
         raise HTTPException(400, detail="name is required")
     if not url:
         raise HTTPException(400, detail="url is required")
-    config = ProviderConfig(name=name, api_type=api_type, url=url, api_key=api_key)
+    params = body.get("params", {})
+    config = ProviderConfig(name=name, api_type=api_type, url=url, api_key=api_key, params=params)
     result = await dispatcher.add_provider(config)
     if "error" in result:
         raise HTTPException(400, detail=result["error"])

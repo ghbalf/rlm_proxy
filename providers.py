@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
@@ -22,11 +23,20 @@ log = logging.getLogger("rlm_proxy.providers")
 
 @dataclass
 class ProviderConfig:
-    """Configuration for a single provider instance."""
+    """Configuration for a single provider instance.
+
+    ``params`` lets you override, add, or suppress any API parameter
+    on a per-provider basis::
+
+        {"temperature": 1}       → always send temperature=1
+        {"temperature": null}    → never send temperature
+        {"top_k": 50}            → add top_k=50 to every request
+    """
     name: str  # user-chosen label, used as prefix in "name/model" routing
     api_type: str  # "ollama" or "openai"
     url: str
     api_key: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
 
     @property
     def id(self) -> str:
@@ -36,6 +46,8 @@ class ProviderConfig:
         d = {"name": self.name, "api_type": self.api_type, "url": self.url}
         if self.api_key:
             d["api_key"] = self.api_key
+        if self.params:
+            d["params"] = self.params
         return d
 
 
@@ -206,53 +218,119 @@ class OpenAIProvider(Provider):
     so calling code doesn't change.
     """
 
-    async def chat(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None):
-        client = await self.get_client()
-        payload: dict[str, Any] = {
-            "model": model, "messages": messages,
-            "temperature": temperature, "top_p": top_p,
-        }
+    # Matches "invalid <param_name>" in API error messages.
+    _PARAM_REJECTED_RE = re.compile(r"invalid (\w+)", re.IGNORECASE)
+
+    def _build_payload(
+        self, model: str, messages: list[dict], *,
+        temperature: float, top_p: float,
+        max_tokens: int | None, stream: bool = False,
+        drop_params: set[str] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"model": model, "messages": messages}
+        if stream:
+            payload["stream"] = True
+        # Defaults from caller
+        payload["temperature"] = temperature
+        payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        log.debug("OpenAI chat → %s  model=%s", self.url, model)
-        resp = await client.post("/chat/completions", json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        # Translate OpenAI → Ollama format
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-        usage = data.get("usage", {})
-        return {
-            "model": data.get("model", model),
-            "message": {"role": "assistant", "content": content},
-            "done": True,
-            "created_at": data.get("created", ""),
-            "eval_count": usage.get("completion_tokens", 0),
-            "prompt_eval_count": usage.get("prompt_tokens", 0),
-        }
+        # Apply provider params: override values, add new ones, null = suppress
+        for key, value in self.config.params.items():
+            if value is None:
+                payload.pop(key, None)
+            else:
+                payload[key] = value
+        # Drop params that were rejected on a previous attempt
+        for key in (drop_params or set()):
+            payload.pop(key, None)
+        return payload
+
+    def _rejected_param(self, error_body: str, payload: dict) -> str | None:
+        """Parse a 400 error to find which payload param was rejected."""
+        m = self._PARAM_REJECTED_RE.search(error_body)
+        if m:
+            param = m.group(1)
+            # Only act on it if we actually sent that param
+            if param in payload:
+                return param
+        return None
+
+    async def chat(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None):
+        client = await self.get_client()
+        drop_params: set[str] = set()
+
+        for attempt in range(3):
+            payload = self._build_payload(
+                model, messages, temperature=temperature, top_p=top_p,
+                max_tokens=max_tokens, drop_params=drop_params,
+            )
+            log.debug("OpenAI chat → %s  model=%s  attempt=%d", self.url, model, attempt + 1)
+            resp = await client.post("/chat/completions", json=payload)
+
+            if resp.status_code == 400:
+                rejected = self._rejected_param(resp.text, payload)
+                if rejected:
+                    log.warning("Model %s rejected %s — retrying without it", model, rejected)
+                    drop_params.add(rejected)
+                    continue
+                log.error("OpenAI API error 400: %s", resp.text[:500])
+
+            if resp.status_code >= 400:
+                log.error("OpenAI API error %d: %s", resp.status_code, resp.text[:500])
+            resp.raise_for_status()
+
+            data = resp.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = data.get("usage", {})
+            return {
+                "model": data.get("model", model),
+                "message": {"role": "assistant", "content": content},
+                "done": True,
+                "created_at": data.get("created", ""),
+                "eval_count": usage.get("completion_tokens", 0),
+                "prompt_eval_count": usage.get("prompt_tokens", 0),
+            }
 
     async def chat_stream(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None):
         client = await self.get_client()
-        payload: dict[str, Any] = {
-            "model": model, "messages": messages, "stream": True,
-            "temperature": temperature, "top_p": top_p,
-        }
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
-        async with client.stream("POST", "/chat/completions", json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                line = line.strip()
-                if not line or line == "data: [DONE]":
+        drop_params: set[str] = set()
+
+        for attempt in range(3):
+            payload = self._build_payload(
+                model, messages, temperature=temperature, top_p=top_p,
+                max_tokens=max_tokens, stream=True, drop_params=drop_params,
+            )
+            log.debug("OpenAI stream → %s  model=%s  attempt=%d", self.url, model, attempt + 1)
+
+            # Non-streaming probe: detect param rejection before opening SSE
+            probe = {k: v for k, v in payload.items() if k != "stream"}
+            probe["max_tokens"] = 1
+            resp = await client.post("/chat/completions", json=probe)
+            if resp.status_code == 400:
+                rejected = self._rejected_param(resp.text, payload)
+                if rejected:
+                    log.warning("Model %s rejected %s — retrying without it", model, rejected)
+                    drop_params.add(rejected)
                     continue
-                if line.startswith("data: "):
-                    line = line[6:]
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                content = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                if content:
-                    yield content
+
+            # Probe passed — do the real streaming request
+            async with client.stream("POST", "/chat/completions", json=payload) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    line = line.strip()
+                    if not line or line == "data: [DONE]":
+                        continue
+                    if line.startswith("data: "):
+                        line = line[6:]
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    content = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if content:
+                        yield content
+                return
 
     async def embed(self, model, input_texts):
         client = await self.get_client()
