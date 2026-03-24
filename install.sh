@@ -182,6 +182,7 @@ if [[ -d "$INSTALL_DIR" ]]; then
 
   cd "$INSTALL_DIR"
   git fetch --all --tags --force
+  git reset --hard HEAD 2>/dev/null || true
   git checkout "$BRANCH" 2>/dev/null || git checkout "origin/$BRANCH" 2>/dev/null || true
   git pull 2>/dev/null || true
 else
