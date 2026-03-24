@@ -32,7 +32,13 @@ class BufferHandler(logging.Handler):
         super().__init__()
         self._buffer: deque[LogEntry] = deque(maxlen=maxlen)
 
+    # Polling endpoints that should not fill the log buffer
+    _NOISE = frozenset({"/v1/rlm/logs", "/v1/rlm/metrics", "/v1/rlm/dispatch"})
+
     def emit(self, record: logging.LogRecord) -> None:
+        msg = record.getMessage()
+        if any(p in msg for p in self._NOISE):
+            return
         entry = LogEntry(
             timestamp=record.created,
             level=record.levelname,
