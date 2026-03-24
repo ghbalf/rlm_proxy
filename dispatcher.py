@@ -250,7 +250,7 @@ class Dispatcher:
         self._init_from_config()
         providers = {}
         for name, ps in self._providers.items():
-            providers[name] = {
+            info: dict = {
                 "api_type": ps.provider.api_type,
                 "url": ps.provider.url,
                 "healthy": ps.healthy,
@@ -259,6 +259,9 @@ class Dispatcher:
                 "total_requests": ps.total_requests,
                 "total_errors": ps.total_errors,
             }
+            if ps.provider.config.params:
+                info["params"] = ps.provider.config.params
+            providers[name] = info
 
         return {
             "provider_count": len(self._providers),

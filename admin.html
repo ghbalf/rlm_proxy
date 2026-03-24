@@ -157,7 +157,12 @@
         </div>
         <button class="btn-primary btn-sm" onclick="addProvider()" style="height:35px">Add</button>
       </div>
-      <div class="help" style="margin-top:8px">Use the name as prefix in model requests: <code style="color:var(--accent)">name/model</code> (e.g. <code>groq/llama-3.3-70b</code>)</div>
+      <div class="form-group" style="margin-top:8px">
+        <label>Params <span style="text-transform:none;font-weight:normal">(optional — override/suppress API parameters)</span></label>
+        <input type="text" id="new-provider-params" placeholder='e.g. {"temperature": 1, "top_p": null}' style="font-family:monospace">
+        <div class="help">JSON object. Set a value to override, <code>null</code> to suppress. Example: <code>{"temperature": 1, "top_p": 0.95}</code></div>
+      </div>
+      <div class="help" style="margin-top:4px">Use the name as prefix in model requests: <code style="color:var(--accent)">name/model</code> (e.g. <code>groq/llama-3.3-70b</code>)</div>
     </div>
   </div>
 
@@ -372,6 +377,35 @@ async function loadHosts() {
       stats.appendChild(s);
     }
     card.appendChild(stats);
+
+    // Params editor
+    if (info.api_type === 'openai') {
+      var paramsDiv = document.createElement('div');
+      paramsDiv.style.cssText = 'margin-top:10px; display:flex; gap:8px; align-items:center;';
+      var paramsLabel = document.createElement('span');
+      paramsLabel.style.cssText = 'font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; flex-shrink:0;';
+      paramsLabel.textContent = 'Params';
+      paramsDiv.appendChild(paramsLabel);
+      var paramsInput = document.createElement('input');
+      paramsInput.type = 'text';
+      paramsInput.style.cssText = 'flex:1; padding:6px 10px; background:var(--input-bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; font-family:monospace;';
+      paramsInput.value = info.params ? JSON.stringify(info.params) : '{}';
+      paramsInput.placeholder = '{"temperature": 1, "top_p": null}';
+      paramsInput.setAttribute('data-provider', provName);
+      paramsDiv.appendChild(paramsInput);
+      var paramsBtn = document.createElement('button');
+      paramsBtn.className = 'btn-sm';
+      paramsBtn.textContent = 'Apply';
+      paramsBtn.setAttribute('data-provider', provName);
+      paramsBtn.onclick = function() {
+        var pName = this.getAttribute('data-provider');
+        var input = this.parentElement.querySelector('input');
+        updateProviderParams(pName, input.value);
+      };
+      paramsDiv.appendChild(paramsBtn);
+      card.appendChild(paramsDiv);
+    }
+
     list.appendChild(card);
   }
 
@@ -391,14 +425,21 @@ async function addProvider() {
   var typeEl = document.getElementById('new-provider-type');
   var urlEl = document.getElementById('new-provider-url');
   var keyEl = document.getElementById('new-provider-key');
+  var paramsEl = document.getElementById('new-provider-params');
   var name = nameEl.value.trim();
   var apiType = typeEl.value;
   var url = urlEl.value.trim();
   var apiKey = keyEl.value.trim();
+  var paramsStr = paramsEl.value.trim();
   if (!name || !url) { toast('Name and URL are required', true); return; }
+  var params = {};
+  if (paramsStr) {
+    try { params = JSON.parse(paramsStr); } catch(ex) { toast('Invalid JSON in params', true); return; }
+  }
   try {
     var body = {name: name, api_type: apiType, url: url};
     if (apiKey) body.api_key = apiKey;
+    if (Object.keys(params).length) body.params = params;
     var resp = await fetch(API + '/v1/rlm/providers/add', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
@@ -407,9 +448,25 @@ async function addProvider() {
     nameEl.value = '';
     urlEl.value = '';
     keyEl.value = '';
+    paramsEl.value = '';
     toast('Provider added: ' + name);
     loadHosts();
   } catch(ex) { toast('Failed to add provider', true); }
+}
+
+async function updateProviderParams(providerName, paramsStr) {
+  var params;
+  try { params = JSON.parse(paramsStr); } catch(ex) { toast('Invalid JSON', true); return; }
+  try {
+    var resp = await fetch(API + '/v1/rlm/providers/params', {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: providerName, params: params})
+    });
+    if (!resp.ok) { var e = await resp.json(); toast(e.detail, true); return; }
+    toast('Params updated for ' + providerName);
+    checkUnsaved();
+    document.getElementById('unsaved').classList.add('show');
+  } catch(ex) { toast('Failed to update params', true); }
 }
 
 async function removeHost(name) {

@@ -98,6 +98,22 @@ async def provider_remove(body: dict):
     return result
 
 
+@router.put("/v1/rlm/providers/params")
+async def provider_params_update(body: dict):
+    """Update params for an existing provider. Body: {"name": "...", "params": {...}}"""
+    name = body.get("name", "").strip()
+    params = body.get("params")
+    if not name:
+        raise HTTPException(400, detail="name is required")
+    if params is None:
+        raise HTTPException(400, detail="params is required")
+    ps = dispatcher._providers.get(name)
+    if ps is None:
+        raise HTTPException(404, detail=f"Provider '{name}' not found")
+    ps.provider.config.params = params
+    return {"name": name, "params": params}
+
+
 # Backward compat — old host endpoints delegate to provider endpoints
 @router.post("/v1/rlm/hosts/add")
 async def host_add(body: dict):
