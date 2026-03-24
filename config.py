@@ -9,6 +9,15 @@ from pydantic_settings import BaseSettings
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
 
+def _env(key: str, default: str) -> str:
+    """Read an env var, stripping any inline comment (# ...) from the value."""
+    raw = os.getenv(key, default)
+    # Strip inline comments: "50000  # some comment" → "50000"
+    if "#" in raw:
+        raw = raw[:raw.index("#")]
+    return raw.strip()
+
+
 EDITABLE_FIELDS = frozenset({
     "root_model",
     "rlm_threshold_chars", "max_iterations", "max_sub_calls",
@@ -26,69 +35,69 @@ EDITABLE_FIELDS = frozenset({
 
 class Settings(BaseSettings):
     # Ollama connection
-    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    ollama_hosts: str = os.getenv("RLM_OLLAMA_HOSTS", "")  # comma-separated, empty = use ollama_base_url
-    dispatcher_refresh_interval: int = int(os.getenv("RLM_DISPATCHER_REFRESH_INTERVAL", "60"))
+    ollama_base_url: str = _env("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_hosts: str = _env("RLM_OLLAMA_HOSTS", "")
+    dispatcher_refresh_interval: int = int(_env("RLM_DISPATCHER_REFRESH_INTERVAL", "60"))
 
     # Model selection (root model for RLM code generation; sub model = user's requested model)
     # Root model for RLM code generation. Use "provider/model" to pin to a provider.
-    root_model: str = os.getenv("RLM_ROOT_MODEL", "qwen3-coder-next")
+    root_model: str = _env("RLM_ROOT_MODEL", "qwen3-coder-next")
 
     # RLM behaviour
-    rlm_threshold_chars: int = int(os.getenv("RLM_THRESHOLD_CHARS", "50000"))
-    max_iterations: int = int(os.getenv("RLM_MAX_ITERATIONS", "20"))
-    max_sub_calls: int = int(os.getenv("RLM_MAX_SUB_CALLS", "50"))
-    sub_call_max_chars: int = int(os.getenv("RLM_SUB_CALL_MAX_CHARS", "500000"))
-    repl_exec_timeout: int = int(os.getenv("RLM_EXEC_TIMEOUT", "60"))
+    rlm_threshold_chars: int = int(_env("RLM_THRESHOLD_CHARS", "50000"))
+    max_iterations: int = int(_env("RLM_MAX_ITERATIONS", "20"))
+    max_sub_calls: int = int(_env("RLM_MAX_SUB_CALLS", "50"))
+    sub_call_max_chars: int = int(_env("RLM_SUB_CALL_MAX_CHARS", "500000"))
+    repl_exec_timeout: int = int(_env("RLM_EXEC_TIMEOUT", "60"))
 
     # Server
-    host: str = os.getenv("RLM_HOST", "0.0.0.0")
-    port: int = int(os.getenv("RLM_PORT", "8881"))
+    host: str = _env("RLM_HOST", "0.0.0.0")
+    port: int = int(_env("RLM_PORT", "8881"))
 
     # Passthrough: forward short prompts directly to Ollama
-    passthrough_short: bool = os.getenv("RLM_PASSTHROUGH_SHORT", "true").lower() == "true"
+    passthrough_short: bool = _env("RLM_PASSTHROUGH_SHORT", "true").lower() == "true"
 
     # Token estimation
-    token_estimate_ratio: float = float(os.getenv("RLM_TOKEN_ESTIMATE_RATIO", "4.0"))
+    token_estimate_ratio: float = float(_env("RLM_TOKEN_ESTIMATE_RATIO", "4.0"))
 
     # Sub-call caching
-    sub_call_cache_size: int = int(os.getenv("RLM_SUB_CALL_CACHE_SIZE", "128"))
+    sub_call_cache_size: int = int(_env("RLM_SUB_CALL_CACHE_SIZE", "128"))
 
     # Parallel sub-calls
-    max_concurrent_sub_calls: int = int(os.getenv("RLM_MAX_CONCURRENT_SUB_CALLS", "4"))
+    max_concurrent_sub_calls: int = int(_env("RLM_MAX_CONCURRENT_SUB_CALLS", "4"))
 
     # Authentication
-    api_key: str = os.getenv("RLM_API_KEY", "")
+    api_key: str = _env("RLM_API_KEY", "")
 
     # Observability
-    metrics_enabled: bool = os.getenv("RLM_METRICS_ENABLED", "true").lower() == "true"
+    metrics_enabled: bool = _env("RLM_METRICS_ENABLED", "true").lower() == "true"
 
     # Prompt profiles
-    prompt_profile_override: str = os.getenv("RLM_PROMPT_PROFILE", "")
+    prompt_profile_override: str = _env("RLM_PROMPT_PROFILE", "")
 
     # Trajectory logging
-    trajectory_log_dir: str = os.getenv("RLM_TRAJECTORY_LOG_DIR", "")
+    trajectory_log_dir: str = _env("RLM_TRAJECTORY_LOG_DIR", "")
 
     # Request queue
-    max_concurrent_sessions: int = int(os.getenv("RLM_MAX_CONCURRENT_SESSIONS", "2"))
-    max_queue_size: int = int(os.getenv("RLM_MAX_QUEUE_SIZE", "10"))
+    max_concurrent_sessions: int = int(_env("RLM_MAX_CONCURRENT_SESSIONS", "2"))
+    max_queue_size: int = int(_env("RLM_MAX_QUEUE_SIZE", "10"))
 
     # History compaction
-    history_compact_threshold: int = int(os.getenv("RLM_HISTORY_COMPACT_THRESHOLD", "30"))
+    history_compact_threshold: int = int(_env("RLM_HISTORY_COMPACT_THRESHOLD", "30"))
 
     # Retry
-    ollama_max_retries: int = int(os.getenv("RLM_OLLAMA_MAX_RETRIES", "3"))
-    ollama_retry_base_delay: float = float(os.getenv("RLM_OLLAMA_RETRY_BASE_DELAY", "1.0"))
+    ollama_max_retries: int = int(_env("RLM_OLLAMA_MAX_RETRIES", "3"))
+    ollama_retry_base_delay: float = float(_env("RLM_OLLAMA_RETRY_BASE_DELAY", "1.0"))
 
     # Sub-call depth limit
-    max_sub_call_depth: int = int(os.getenv("RLM_MAX_SUB_CALL_DEPTH", "3"))
+    max_sub_call_depth: int = int(_env("RLM_MAX_SUB_CALL_DEPTH", "3"))
 
     # Token budget (0 = unlimited)
-    token_budget: int = int(os.getenv("RLM_TOKEN_BUDGET", "0"))
+    token_budget: int = int(_env("RLM_TOKEN_BUDGET", "0"))
 
     # Circuit breaker
-    circuit_breaker_threshold: int = int(os.getenv("RLM_CIRCUIT_BREAKER_THRESHOLD", "5"))
-    circuit_breaker_timeout: int = int(os.getenv("RLM_CIRCUIT_BREAKER_TIMEOUT", "30"))
+    circuit_breaker_threshold: int = int(_env("RLM_CIRCUIT_BREAKER_THRESHOLD", "5"))
+    circuit_breaker_timeout: int = int(_env("RLM_CIRCUIT_BREAKER_TIMEOUT", "30"))
 
     model_config = {"env_prefix": "RLM_", "extra": "ignore"}
 
