@@ -6,17 +6,19 @@ import time
 import uuid
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── Requests ─────────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
+    model_config = ConfigDict(extra="allow")
+    role: str
+    content: str | None = None
 
 
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
     model: str
     messages: list[ChatMessage]
     temperature: float = 0.7

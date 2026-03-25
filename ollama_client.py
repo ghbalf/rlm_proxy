@@ -73,6 +73,7 @@ async def chat(
     max_tokens: int | None = None,
     stream: bool = False,
     provider_url: str | None = None,
+    extra_params: dict | None = None,
 ) -> dict[str, Any]:
     """Chat completion via the best available provider."""
 
@@ -82,7 +83,8 @@ async def chat(
         try:
             return await provider.chat(actual_model, messages,
                                        temperature=temperature, top_p=top_p,
-                                       max_tokens=max_tokens)
+                                       max_tokens=max_tokens,
+                                       extra_params=extra_params)
         except Exception:
             dispatcher.record_error(provider.name)
             raise
@@ -100,6 +102,7 @@ async def chat_stream(
     top_p: float = 0.9,
     max_tokens: int | None = None,
     provider_url: str | None = None,
+    extra_params: dict | None = None,
 ):
     """Streaming chat via the best available provider."""
     await breaker.check()
@@ -112,6 +115,7 @@ async def chat_stream(
                 async for chunk in provider.chat_stream(
                     actual_model, messages,
                     temperature=temperature, top_p=top_p, max_tokens=max_tokens,
+                    extra_params=extra_params,
                 ):
                     yield chunk
                 await breaker.record_success()

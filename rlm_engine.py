@@ -512,6 +512,7 @@ async def passthrough_chat(
     temperature: float = 0.7,
     top_p: float = 0.9,
     max_tokens: int | None = None,
+    extra_params: dict | None = None,
 ) -> dict:
     """Direct passthrough to Ollama for short prompts (no RLM scaffold).
 
@@ -523,4 +524,5 @@ async def passthrough_chat(
         temperature=temperature,
         top_p=top_p,
         max_tokens=max_tokens,
+        extra_params=extra_params,
     )

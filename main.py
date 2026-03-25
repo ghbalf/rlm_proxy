@@ -385,6 +385,30 @@ async def dispatch_info():
     return dispatcher.snapshot()
 
 
+# Fields that are handled explicitly — everything else is forwarded to the provider
+_KNOWN_FIELDS = frozenset({
+    "model", "messages", "temperature", "top_p", "max_tokens", "stream",
+    "force_rlm", "force_passthrough", "context",
+})
+
+
+def _extra_params(req: ChatCompletionRequest) -> dict | None:
+    """Extract extra request fields (tools, tool_choice, etc.) for forwarding."""
+    extra = req.model_extra
+    return extra if extra else None
+
+
+def _serialize_messages(messages: list) -> list[dict]:
+    """Serialize ChatMessage objects to dicts, preserving extra fields."""
+    result = []
+    for m in messages:
+        d = {"role": m.role, "content": m.content}
+        if m.model_extra:
+            d.update(m.model_extra)
+        result.append(d)
+    return result
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatCompletionRequest):
     if not req.messages:
@@ -403,11 +427,12 @@ async def chat_completions(req: ChatCompletionRequest):
 
     if req.stream and not use_rlm:
         async def _stream_passthrough():
-            ollama_msgs = [{"role": m.role, "content": m.content} for m in req.messages]
+            ollama_msgs = _serialize_messages(req.messages)
             async for chunk in ollama_client.chat_stream(
                 model=req.model, messages=ollama_msgs,
                 temperature=req.temperature, top_p=req.top_p,
                 max_tokens=req.max_tokens,
+                extra_params=_extra_params(req),
             ):
                 yield _sse_chunk(req.model, chunk)
             yield _sse_chunk(req.model, "", finish_reason="stop")
@@ -447,7 +472,7 @@ async def chat_completions(req: ChatCompletionRequest):
 
     if not use_rlm:
         # ── Direct passthrough ──
-        ollama_msgs = [{"role": m.role, "content": m.content} for m in req.messages]
+        ollama_msgs = _serialize_messages(req.messages)
         t_pass = time.perf_counter()
         try:
             resp = await passthrough_chat(
@@ -456,6 +481,7 @@ async def chat_completions(req: ChatCompletionRequest):
                 temperature=req.temperature,
                 top_p=req.top_p,
                 max_tokens=req.max_tokens,
+                extra_params=_extra_params(req),
             )
         except CircuitOpenError as exc:
             metrics.record_error()

@@ -107,6 +107,7 @@ class Provider(ABC):
         self, model: str, messages: list[dict], *,
         temperature: float = 0.7, top_p: float = 0.9,
         max_tokens: int | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Chat completion. Returns Ollama-format response."""
         ...
@@ -116,6 +117,7 @@ class Provider(ABC):
         self, model: str, messages: list[dict], *,
         temperature: float = 0.7, top_p: float = 0.9,
         max_tokens: int | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Streaming chat. Yields content string chunks."""
         ...
@@ -139,7 +141,7 @@ class Provider(ABC):
 class OllamaProvider(Provider):
     """Provider for Ollama API (native format)."""
 
-    async def chat(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None):
+    async def chat(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None, extra_params=None):
         client = await self.get_client()
         payload: dict[str, Any] = {
             "model": model, "messages": messages, "stream": False,
@@ -152,7 +154,7 @@ class OllamaProvider(Provider):
         resp.raise_for_status()
         return resp.json()
 
-    async def chat_stream(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None):
+    async def chat_stream(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None, extra_params=None):
         client = await self.get_client()
         payload: dict[str, Any] = {
             "model": model, "messages": messages, "stream": True,
@@ -226,6 +228,7 @@ class OpenAIProvider(Provider):
         temperature: float, top_p: float,
         max_tokens: int | None, stream: bool = False,
         drop_params: set[str] | None = None,
+        extra_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"model": model, "messages": messages}
         if stream:
@@ -235,6 +238,9 @@ class OpenAIProvider(Provider):
         payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        # Forward extra fields from the client request (tools, tool_choice, etc.)
+        if extra_params:
+            payload.update(extra_params)
         # Apply provider params: override values, add new ones, null = suppress
         for key, value in self.config.params.items():
             if value is None:
@@ -256,7 +262,7 @@ class OpenAIProvider(Provider):
                 return param
         return None
 
-    async def chat(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None):
+    async def chat(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None, extra_params=None):
         client = await self.get_client()
         drop_params: set[str] = set()
 
@@ -264,6 +270,7 @@ class OpenAIProvider(Provider):
             payload = self._build_payload(
                 model, messages, temperature=temperature, top_p=top_p,
                 max_tokens=max_tokens, drop_params=drop_params,
+                extra_params=extra_params,
             )
             log.debug("OpenAI chat → %s  model=%s  attempt=%d", self.url, model, attempt + 1)
             resp = await client.post("/chat/completions", json=payload)
@@ -292,7 +299,7 @@ class OpenAIProvider(Provider):
                 "prompt_eval_count": usage.get("prompt_tokens", 0),
             }
 
-    async def chat_stream(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None):
+    async def chat_stream(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None, extra_params=None):
         client = await self.get_client()
         drop_params: set[str] = set()
 
@@ -300,6 +307,7 @@ class OpenAIProvider(Provider):
             payload = self._build_payload(
                 model, messages, temperature=temperature, top_p=top_p,
                 max_tokens=max_tokens, stream=True, drop_params=drop_params,
+                extra_params=extra_params,
             )
             log.debug("OpenAI stream → %s  model=%s  attempt=%d", self.url, model, attempt + 1)
 
