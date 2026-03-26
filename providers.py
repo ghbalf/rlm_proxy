@@ -105,7 +105,7 @@ class Provider(ABC):
     @abstractmethod
     async def chat(
         self, model: str, messages: list[dict], *,
-        temperature: float = 0.7, top_p: float = 0.9,
+        temperature: float | None = None, top_p: float | None = None,
         max_tokens: int | None = None,
         extra_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -115,7 +115,7 @@ class Provider(ABC):
     @abstractmethod
     async def chat_stream(
         self, model: str, messages: list[dict], *,
-        temperature: float = 0.7, top_p: float = 0.9,
+        temperature: float | None = None, top_p: float | None = None,
         max_tokens: int | None = None,
         extra_params: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
@@ -141,27 +141,39 @@ class Provider(ABC):
 class OllamaProvider(Provider):
     """Provider for Ollama API (native format)."""
 
-    async def chat(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None, extra_params=None):
+    async def chat(self, model, messages, *, temperature=None, top_p=None, max_tokens=None, extra_params=None):
         client = await self.get_client()
+        options: dict[str, Any] = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if top_p is not None:
+            options["top_p"] = top_p
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
         payload: dict[str, Any] = {
             "model": model, "messages": messages, "stream": False,
-            "options": {"temperature": temperature, "top_p": top_p},
         }
-        if max_tokens is not None:
-            payload["options"]["num_predict"] = max_tokens
+        if options:
+            payload["options"] = options
         log.debug("Ollama chat → %s  model=%s", self.url, model)
         resp = await client.post("/api/chat", json=payload)
         resp.raise_for_status()
         return resp.json()
 
-    async def chat_stream(self, model, messages, *, temperature=0.7, top_p=0.9, max_tokens=None, extra_params=None):
+    async def chat_stream(self, model, messages, *, temperature=None, top_p=None, max_tokens=None, extra_params=None):
         client = await self.get_client()
+        options: dict[str, Any] = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if top_p is not None:
+            options["top_p"] = top_p
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
         payload: dict[str, Any] = {
             "model": model, "messages": messages, "stream": True,
-            "options": {"temperature": temperature, "top_p": top_p},
         }
-        if max_tokens is not None:
-            payload["options"]["num_predict"] = max_tokens
+        if options:
+            payload["options"] = options
         async with client.stream("POST", "/api/chat", json=payload) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -197,17 +209,21 @@ class OllamaProvider(Provider):
         resp.raise_for_status()
         return resp.json()
 
-    async def generate(self, model, prompt, *, system=None, temperature=0.7, max_tokens=None):
+    async def generate(self, model, prompt, *, system=None, temperature=None, max_tokens=None):
         """Ollama-specific generate endpoint."""
         client = await self.get_client()
+        options: dict[str, Any] = {}
+        if temperature is not None:
+            options["temperature"] = temperature
+        if max_tokens:
+            options["num_predict"] = max_tokens
         payload: dict[str, Any] = {
             "model": model, "prompt": prompt, "stream": False,
-            "options": {"temperature": temperature},
         }
+        if options:
+            payload["options"] = options
         if system:
             payload["system"] = system
-        if max_tokens:
-            payload["options"]["num_predict"] = max_tokens
         resp = await client.post("/api/generate", json=payload)
         resp.raise_for_status()
         return resp.json().get("response", "")
@@ -233,9 +249,11 @@ class OpenAIProvider(Provider):
         payload: dict[str, Any] = {"model": model, "messages": messages}
         if stream:
             payload["stream"] = True
-        # Defaults from caller
-        payload["temperature"] = temperature
-        payload["top_p"] = top_p
+        # Only include sampling params if the client explicitly set them
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if top_p is not None:
+            payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         # Forward extra fields from the client request (tools, tool_choice, etc.)

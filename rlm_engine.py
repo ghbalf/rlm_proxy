@@ -509,8 +509,8 @@ async def passthrough_chat(
     messages: list[dict[str, str]],
     *,
     model: str | None = None,
-    temperature: float = 0.7,
-    top_p: float = 0.9,
+    temperature: float | None = None,
+    top_p: float | None = None,
     max_tokens: int | None = None,
     extra_params: dict | None = None,
 ) -> dict:

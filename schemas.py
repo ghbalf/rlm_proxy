@@ -21,8 +21,8 @@ class ChatCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
     model: str
     messages: list[ChatMessage]
-    temperature: float = 0.7
-    top_p: float = 0.9
+    temperature: float | None = None
+    top_p: float | None = None
     max_tokens: int | None = None
     stream: bool = False
     # RLM-specific: force RLM mode regardless of length
