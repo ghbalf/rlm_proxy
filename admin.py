@@ -79,6 +79,10 @@ async def provider_add(body: dict):
         raise HTTPException(400, detail="name is required")
     if not url:
         raise HTTPException(400, detail="url is required")
+    if "${" in api_key:
+        # Placeholders are resolved from the environment; allowing them here would
+        # let any caller send e.g. ${MOONSHOT_API_KEY} to a URL of their choice.
+        raise HTTPException(400, detail="api_key placeholders are only allowed in config.json")
     params = body.get("params", {})
     config = ProviderConfig(name=name, api_type=api_type, url=url, api_key=api_key, params=params)
     result = await dispatcher.add_provider(config)

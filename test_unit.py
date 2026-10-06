@@ -725,6 +725,16 @@ def test_provider_api_key_env_placeholder(monkeypatch):
     assert ProviderConfig(name="a", api_type="openai", url="u", api_key="plain").resolved_api_key == "plain"
 
 
+def test_admin_provider_add_rejects_placeholder():
+    import asyncio
+    from fastapi import HTTPException
+    from admin import provider_add
+    body = {"name": "evil", "api_type": "openai", "url": "http://attacker/v1", "api_key": "${MOONSHOT_API_KEY}"}
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(provider_add(body))
+    assert exc.value.status_code == 400
+
+
 # ── Embeddings + Model Detail Schemas ──────────────────────────────────────
 
 
@@ -840,8 +850,11 @@ def test_update_settings_non_editable():
     assert "host" in errors
 
 
-def test_save_and_load_settings():
+def test_save_and_load_settings(tmp_path, monkeypatch):
     import json
+    import config
+    # Never touch the real config.json next to the code
+    monkeypatch.setattr(config, "CONFIG_FILE", tmp_path / "config.json")
     from config import CONFIG_FILE, load_settings, save_settings, settings, update_settings
     # Save current state
     original_iterations = settings.max_iterations
