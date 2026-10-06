@@ -714,6 +714,17 @@ def test_provider_config_serialization():
     assert cfg2.name == cfg.name
 
 
+def test_provider_api_key_env_placeholder(monkeypatch):
+    from providers import ProviderConfig
+    cfg = ProviderConfig(name="moonshot", api_type="openai", url="https://x/v1", api_key="${TEST_RLM_KEY}")
+    monkeypatch.setenv("TEST_RLM_KEY", "secret")
+    assert cfg.resolved_api_key == "secret"
+    assert cfg.to_dict()["api_key"] == "${TEST_RLM_KEY}"  # secret never saved
+    monkeypatch.delenv("TEST_RLM_KEY")
+    assert cfg.resolved_api_key == ""
+    assert ProviderConfig(name="a", api_type="openai", url="u", api_key="plain").resolved_api_key == "plain"
+
+
 # ── Embeddings + Model Detail Schemas ──────────────────────────────────────
 
 

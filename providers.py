@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -41,6 +42,21 @@ class ProviderConfig:
     @property
     def id(self) -> str:
         return self.name
+
+    @property
+    def resolved_api_key(self) -> str:
+        """api_key with a "${VAR}" placeholder replaced from the environment.
+
+        The raw placeholder stays in api_key so that saving the config never
+        writes the secret into config.json.
+        """
+        m = re.fullmatch(r"\$\{(\w+)\}", self.api_key.strip())
+        if not m:
+            return self.api_key
+        value = os.environ.get(m.group(1), "")
+        if not value:
+            log.warning("Provider %s: env var %s for api_key is not set", self.name, m.group(1))
+        return value
 
     def to_dict(self) -> dict:
         d = {"name": self.name, "api_type": self.api_type, "url": self.url}
@@ -88,8 +104,9 @@ class Provider(ABC):
     async def get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             headers = {}
-            if self.config.api_key:
-                headers["Authorization"] = f"Bearer {self.config.api_key}"
+            api_key = self.config.resolved_api_key
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             self._client = httpx.AsyncClient(
                 base_url=self.config.url,
                 timeout=httpx.Timeout(300.0, connect=10.0),
